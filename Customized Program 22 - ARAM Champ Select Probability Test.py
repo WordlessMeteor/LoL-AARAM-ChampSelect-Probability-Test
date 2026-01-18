@@ -446,6 +446,7 @@ async def StartBlindPickCustomAARAM(connection: Connection, premade: bool = Fals
                         time.sleep(interval)
                 #第三步：等待所有成员选一名英雄（Step 3: Wait for all members to pick a champion）
                 AllPrepared: bool = False #标记所有成员是否准备就绪（Marks whether all members are prepared）
+                champ_select_session_errored: bool = False #标记英雄选择会话是否出现异常。有点像returned_to_lobby（Mark if the champ select session is errored. Kind of like `returned_to_lobby`）
                 while True:
                     #第三步：第一阶段：获取可选英雄列表（Step 3: Phase 1: Get the list of pickable champions' ids）
                     pickable_championIds: list[int] = await (await connection.request("GET", "/lol-lobby-team-builder/champ-select/v1/subset-champion-list")).json()
@@ -466,20 +467,29 @@ async def StartBlindPickCustomAARAM(connection: Connection, premade: bool = Fals
                         for championId in current_candidate_championIds: #在可选英雄列表中出现了候选英雄的情况下，按优先级选择一名候选英雄（When a candidate champion is present in the pickable championId list, select a candidate champion according to priority）
                             if championId in pickable_championIds:
                                 while True:
-                                    localPlayer = await get_champSelect_player(connection)
+                                    champ_select_session = await (await connection.request("GET", "/lol-champ-select/v1/session")).json()
+                                    if "errorCode" in champ_select_session:
+                                        champ_select_session_errored = True
+                                        break
+                                    localPlayer = extract_champSelect_player(champ_select_session)
                                     if localPlayer["championId"] == championId:
                                         break
                                     else:
                                         await secLock(connection, championId = championId)
                                     if interval != 0:
                                         time.sleep(interval)
-                                logPrint("您已选择（You selected）：%s %s (%d)" %(LoLChampions[championId]["name"], LoLChampions[championId]["title"], championId), print_time = True)
-                                selected_priority = current_candidate_championIds.index(championId)
-                                target_championId = championId
+                                if not champ_select_session_errored:
+                                    logPrint("您已选择（You selected）：%s %s (%d)" %(LoLChampions[championId]["name"], LoLChampions[championId]["title"], championId), print_time = True)
+                                    selected_priority = current_candidate_championIds.index(championId)
+                                    target_championId = championId
                                 break
                         else: #如果可选英雄列表中没有候选英雄，则选择第一个英雄卡片（If there's not any candidate champion in the pickable champion list, then select the first champion card）
                             while True:
-                                localPlayer = await get_champSelect_player(connection)
+                                champ_select_session = await (await connection.request("GET", "/lol-champ-select/v1/session")).json()
+                                if "errorCode" in champ_select_session:
+                                    champ_select_session_errored = True
+                                    break
+                                localPlayer = extract_champSelect_player(champ_select_session)
                                 if localPlayer["championId"] == pickable_championIds[0]:
                                     break
                                 else:
@@ -487,6 +497,8 @@ async def StartBlindPickCustomAARAM(connection: Connection, premade: bool = Fals
                                 if interval != 0:
                                     time.sleep(interval)
                             logPrint("未从您的英雄卡片中找到一名候选英雄。\nThere's not any candidate champion among those champion cards.\n您已选择（You selected）：%s %s (%d)" %(LoLChampions[pickable_championIds[0]]["name"], LoLChampions[pickable_championIds[0]]["title"], pickable_championIds[0]), print_time = True)
+                        if champ_select_session_errored:
+                            break
                         if not isCrowd and selected_priority == 0: #在单选模式下，如果已经拿到最高优先级的候选英雄，就不必执行下一步（Under single mode, if the champion with the highest priority is already got, then there's no need to execute the next step）
                             break
                         #偶然发现一个问题：到在性能较慢的机器上执行这两个阶段时，性能优良的机器可能已经在执行下一个英雄选择阶段。从而导致一个现象：前面确实选了一个英雄，但是是上一个英雄选择阶段的。结果执行到下面，实际上自己还没有选择英雄，结果导致即使其他成员都选好英雄了，结果却因为自己本次英雄选择阶段还没有选择英雄，导致在人为不干预的情况下，需要等待选英雄倒计时耗尽自动选一名英雄，才视为所有成员选好了英雄（I happened to observe an issue: When a slow machine has finished Phase 2 of Step 3 and is just going to run the third phase, a fast machine may be during the next champ select stage. In that case, a phenomenon will occur: the player using this slow machine indeed picked a champion, but this champion belongs to the last champ select stage. And when this slow machine is going to run Step 5, the player hasn't actually selected a champion. As a result, all players except the player using the slow machine has picked their champions, and thus without human interference, all players will select a champion only after the pick timer runs out）
@@ -515,6 +527,9 @@ async def StartBlindPickCustomAARAM(connection: Connection, premade: bool = Fals
                                 time.sleep(interval)
                         if AllPrepared:
                             break
+                if champ_select_session_errored:
+                    logPrint("英雄选择阶段出现异常。\nAn error occurred to the champ select stage.", print_time = True)
+                    continue
                 if not isCrowd and selected_priority == 0:
                     break
                 #英雄出现次数递增（Increment champion occurrences）
@@ -1068,33 +1083,28 @@ async def RotateBlindPickCustomAARAM(connection: Connection, premade: bool = Fal
             if len(freq_df) > 1:
                 logPrint("本次试验过程的英雄出现次数频数统计情况如下：\nThe champion occurrence frequency distribution during this test is as follows:")
                 logPrint(format_df(freq_df)[0], write_time = False)
-            if isCrowd: #以上picked_championId返回的是完成测试时房主选用的英雄，而在多选模式中指定的候选英雄在替补英雄池中被发现时，不再执行后续的为房主选最高优先级的英雄这个动作，所以逻辑上讲，picked_championId不适用于本部分（The above `picked_championId` returns the champion selected by the lobby owner, but in crowd mode, when a candidate champion is found in the bench, the program no longer performs such an action that helps the lobby owner to select the pickable candidate champion with the highest priority. So, logically speaking, `picked_championId` doesn't apply to this part）
+            if not isCrowd and picked_championId != -1: #以上picked_championId返回的是完成测试时房主选用的英雄，而在多选模式中指定的候选英雄在替补英雄池中被发现时，不再执行后续的为房主选最高优先级的英雄这个动作，所以逻辑上讲，picked_championId不适用于本部分（The above `picked_championId` returns the champion selected by the lobby owner, but in crowd mode, when a candidate champion is found in the bench, the program no longer performs such an action that helps the lobby owner to select the pickable candidate champion with the highest priority. So, logically speaking, `picked_championId` doesn't apply to this part）
+                current_candidate_championIds.remove(picked_championId)
+            if len(current_candidate_championIds) == 0:
                 logPrint("测试完成。按回车键退出。\nTest finished. Press Enter to exit.")
                 logInput()
                 break
-            else:
-                if picked_championId != -1:
-                    current_candidate_championIds.remove(picked_championId)
-                if len(current_candidate_championIds) == 0:
-                    logPrint("测试完成。按回车键退出。\nTest finished. Press Enter to exit.")
-                    logInput()
-                    break
-                else:
-                    logPrint('按回车键以开启下一场测试，或者输入“0”以退出测试序列。\nPress Enter to start the next test, or submit "0" to quit the test sequence.')
-                    while True:
-                        quit: bool = False
-                        tmp: str = logInput()
-                        if tmp != "" and tmp[0] == "0":
-                            quit = True
-                            break
-                        else:
-                            gameflow_phase: str = await (await connection.request("GET", "/lol-gameflow/v1/gameflow-phase")).json()
-                            if gameflow_phase in {"InProgress", "Reconnect"}:
-                                logPrint("您还在游戏中。请退出游戏后再试一次。\nYou're still in a game. Please exit the game and try again.")
-                            else:
-                                break
-                    if quit:
+            else: #多选模式下，current_candidate_championIds永远不可能为空（Under crowd mode, `current_candidate_championIds` can never be empty）
+                logPrint('按回车键以开启下一场测试，或者输入“0”以退出测试序列。\nPress Enter to start the next test, or submit "0" to quit the test sequence.')
+                while True:
+                    quit: bool = False
+                    tmp: str = logInput()
+                    if tmp != "" and tmp[0] == "0":
+                        quit = True
                         break
+                    else:
+                        gameflow_phase: str = await (await connection.request("GET", "/lol-gameflow/v1/gameflow-phase")).json()
+                        if gameflow_phase in {"InProgress", "Reconnect"}:
+                            logPrint("您还在游戏中。请退出游戏后再试一次。\nYou're still in a game. Please exit the game and try again.")
+                        else:
+                            break
+                if quit:
+                    break
         #输出所有统计结果（Output all statistics）
         champion_frequency_df: pandas.DataFrame = sort_champion_frequency_table(champion_frequency_dict)
         logPrint(champion_frequency_dict, verbose = False)
