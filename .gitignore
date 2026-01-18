@@ -1,0 +1,15 @@
+#Vscode个人配置文件（Stores paths of Vscode setting files）
+.vscode/*
+#调试文件（Debug files）
+调试脚本.py
+#日志文件（Log files）
+离线数据（Offline Data）/Update Logs/*
+日志（Logs）/*
+#库缓存（Pycache）
+*__pycache__*
+#由程序生成的数据文件（Generated data files）
+召唤师信息（Summoner Information）/*
+顶尖排位玩家（Ranked Apex）/*
+离线数据（Offline Data）/cdragon/*
+离线数据（Offline Data）/ddragon/*
+离线数据（Offline Data）/versions.json
