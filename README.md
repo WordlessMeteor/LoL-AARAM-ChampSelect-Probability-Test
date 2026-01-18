@@ -7,7 +7,7 @@
 2. 下载和安装最新版本的Python。
 3. 通过`pip install [包名]`命令安装所需的Python库。
     - lcu_driver
-        - 本人复刻了[lcu_driver库]文件(https://github.com/WordlessMeteor/lcu-driver/tree/master/lcu_driver)，以便相应的拉取请求在经过lcu_driver库的作者同意合并之前，或者被作者拒绝时，用户仍然可以下载体验本存储库的lcu_driver库文件。
+        - 本人复刻了[lcu_driver库](https://github.com/WordlessMeteor/lcu-driver/tree/master/lcu_driver)文件，以便相应的拉取请求在经过lcu_driver库的作者同意合并之前，或者被作者拒绝时，用户仍然可以下载体验本存储库的lcu_driver库文件。
         - 本人只负责**根据本程序集需要**对该存储库中的库文件进行修改，没有义务将其它GitHub用户对库文件的修改与本人对库文件的修改进行合并。不过，欢迎任何用户**基于本程序集的更新**对库文件更新提出意见和建议👏
         - 如果需要使用本人修改的lcu_driver库，请按照如下步骤进行。
             1. 打开[本人的lcu-driver存储库主页](https://github.com/WordlessMeteor/lcu-driver)。
